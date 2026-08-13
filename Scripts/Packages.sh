@@ -69,6 +69,31 @@ UPDATE_PACKAGE "ddns-go" "sirpdboy/luci-app-ddns-go" "main"
 UPDATE_PACKAGE "diskman" "sbwml/luci-app-diskman" "main"
 UPDATE_PACKAGE "diskmanager" "4IceG/luci-app-mini-diskmanager" "main"
 UPDATE_PACKAGE "easytier" "EasyTier/luci-app-easytier" "main"
+
+# MosDNS v5 在最新 OpenWrt Snapshot 上需要新版 Go 工具链，以及同一来源的
+# v2ray-geoip/v2ray-geosite。仅在选择 MosDNS 时替换，避免影响其他固件任务。
+MOSDNS_ENABLED=false
+for CONFIG_FILE in \
+	"$GITHUB_WORKSPACE/Config/$WRT_CONFIG.txt" \
+	"$GITHUB_WORKSPACE/Config/PRIVATE.txt"; do
+	if [ -f "$CONFIG_FILE" ] && grep -q '^CONFIG_PACKAGE_luci-app-mosdns=y$' "$CONFIG_FILE"; then
+		MOSDNS_ENABLED=true
+	fi
+done
+
+if [[ "$WRT_PACKAGE" == *"CONFIG_PACKAGE_luci-app-mosdns=y"* ]]; then
+	MOSDNS_ENABLED=true
+fi
+
+if $MOSDNS_ENABLED; then
+	rm -rf ../feeds/packages/lang/golang
+	git clone --depth=1 --single-branch --branch 26.x \
+		"https://github.com/sbwml/packages_lang_golang.git" ../feeds/packages/lang/golang
+
+	rm -rf ../feeds/packages/net/v2ray-geodata ./v2ray-geodata
+	git clone --depth=1 "https://github.com/sbwml/v2ray-geodata.git" ./v2ray-geodata
+fi
+
 UPDATE_PACKAGE "mosdns" "sbwml/luci-app-mosdns" "v5" "" "v2dat"
 UPDATE_PACKAGE "netspeedtest" "sirpdboy/netspeedtest" "main" "" "homebox ookla-speedtest"
 UPDATE_PACKAGE "netwizard" "sirpdboy/luci-app-netwizard" "main"
