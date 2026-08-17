@@ -17,6 +17,34 @@ CONFIG_PACKAGE_kmod-nft-tproxy=y
 CONFIG_PACKAGE_kmod-nft-socket=y
 CONFIG_PACKAGE_ip-full=y
 
+#设备信息采集与网络可视化
+CONFIG_PACKAGE_rpcd=y
+CONFIG_PACKAGE_uhttpd=y
+CONFIG_PACKAGE_uhttpd-mod-ubus=y
+CONFIG_PACKAGE_dnsmasq=y
+CONFIG_PACKAGE_nlbwmon=y
+CONFIG_PACKAGE_luci-app-nlbwmon=y
+CONFIG_PACKAGE_conntrack=y
+CONFIG_PACKAGE_kmod-nf-conntrack=y
+CONFIG_PACKAGE_iw=y
+CONFIG_PACKAGE_iwinfo=y
+CONFIG_PACKAGE_hostapd-utils=y
+CONFIG_PACKAGE_kmod-nft-core=y
+CONFIG_PACKAGE_kmod-nft-nat=y
+
+#终端与脚本工具
+CONFIG_PACKAGE_bash=y
+CONFIG_PACKAGE_curl=y
+CONFIG_PACKAGE_jq=y
+CONFIG_PACKAGE_less=y
+CONFIG_PACKAGE_file=y
+CONFIG_PACKAGE_findutils-find=y
+CONFIG_PACKAGE_findutils-xargs=y
+CONFIG_PACKAGE_grep=y
+CONFIG_PACKAGE_gawk=y
+CONFIG_PACKAGE_sed=y
+CONFIG_PACKAGE_diffutils=y
+
 #USB 3.0 与存储
 CONFIG_PACKAGE_kmod-usb-core=y
 CONFIG_PACKAGE_kmod-usb3=y
