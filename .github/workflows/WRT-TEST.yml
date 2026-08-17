@@ -23,6 +23,7 @@ on:
           - N60-PRO-TEST
           - ROCKCHIP
           - X86
+          - X86-TEST
           - TEST
       SOURCE:
         default: 'VIKINGYFY/immortalwrt'
