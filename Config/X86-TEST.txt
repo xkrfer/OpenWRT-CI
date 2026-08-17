@@ -78,11 +78,10 @@ CONFIG_PACKAGE_libnvme=y
 CONFIG_PACKAGE_smartmontools=y
 CONFIG_PACKAGE_smartmontools-drivedb=y
 
-#网络诊断与容器
+#网络诊断
 CONFIG_PACKAGE_iperf3=y
 CONFIG_PACKAGE_kmod-inet-diag=y
 CONFIG_PACKAGE_kmod-netlink-diag=y
-CONFIG_PACKAGE_kmod-veth=y
 CONFIG_PACKAGE_kmod-fuse=y
 
 #常用组件
@@ -101,9 +100,8 @@ CONFIG_PACKAGE_kmod-hwmon-w83627ehf=y
 CONFIG_PACKAGE_kmod-hwmon-w83627hf=y
 CONFIG_PACKAGE_kmod-w83627hf-wdt=y
 
-#局域网磁盘共享与容器
+#局域网磁盘共享与管理
 CONFIG_PACKAGE_luci-app-samba4=y
-CONFIG_PACKAGE_luci-app-dockerman=y
 CONFIG_PACKAGE_luci-app-mini-diskmanager=y
 CONFIG_PACKAGE_luci-app-partexp=y
 
