@@ -60,9 +60,10 @@ UPDATE_PACKAGE "momo" "nikkinikki-org/OpenWrt-momo" "main"
 UPDATE_PACKAGE "nikki" "nikkinikki-org/OpenWrt-nikki" "main"
 UPDATE_PACKAGE "daed" "QiuSimons/luci-app-daed" "kix" "name" "luci-app-daed"
 
-# daed's frontend lockfile and packageManager field currently require pnpm 10.
-# Installing an unpinned pnpm pulls pnpm 11, whose failed install is masked by
-# the upstream Build/Prepare recipe and later appears as an empty Go embed dir.
+# daed's frontend packageManager field currently requires pnpm 10. Its lockfile
+# also contains resolved catalog versions while package.json uses "catalog:",
+# so CI must refresh the lockfile in the temporary build tree. These failures
+# are otherwise masked upstream and later appear as an empty Go embed dir.
 DAED_MAKEFILE="./daed/daed/Makefile"
 if [ ! -f "$DAED_MAKEFILE" ]; then
 	echo "daed Makefile not found: $DAED_MAKEFILE" >&2
@@ -74,8 +75,14 @@ if ! grep -q 'npm install -g pnpm ;' "$DAED_MAKEFILE"; then
 	exit 1
 fi
 
+if ! grep -q '^[[:space:]]*pnpm install ;' "$DAED_MAKEFILE"; then
+	echo "daed frontend install command changed; refusing to apply a stale patch" >&2
+	exit 1
+fi
+
 sed -i \
 	-e 's/npm install -g pnpm ;/npm install -g pnpm@10.24.0 ;/' \
+	-e 's/pnpm install ;/pnpm install --no-frozen-lockfile ;/' \
 	-e '/define Build\/Prepare/,/endef/ s/^\t( \\/\t( set -e; \\/' \
 	"$DAED_MAKEFILE"
 
