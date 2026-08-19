@@ -6,9 +6,9 @@ name: N60-PRO
 
 #CI计划
 on:
-  #每天早上5点15分检查上游；仅在源码提交变化时编译
+  #每周一早上5点15分检查上游；仅在源码提交变化时编译
   schedule:
-    - cron: 15 21 * * *
+    - cron: 15 21 * * 0
   #手动编译
   workflow_dispatch:
     inputs:

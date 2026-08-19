@@ -4,9 +4,9 @@
 name: Logs-Clean
 
 on:
-  #每天早上5点05分清理已完成的构建日志
+  #每周一早上5点05分清理已完成的构建日志
   schedule:
-    - cron: 5 21 * * *
+    - cron: 5 21 * * 0
   #手动清理
   workflow_dispatch:
 
