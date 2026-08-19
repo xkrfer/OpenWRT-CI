@@ -6,9 +6,9 @@ name: N60-PRO
 
 #CI计划
 on:
-  #每周一早上5点15分检查上游；仅在源码提交变化时编译
+  #每3天早上5点15分检查上游；仅在源码提交变化时编译
   schedule:
-    - cron: 15 21 * * 0
+    - cron: '15 21 */3 * *'
   #手动编译
   workflow_dispatch:
     inputs:
@@ -58,6 +58,7 @@ jobs:
             exit 1
           fi
           echo "sha=$UPSTREAM_SHA" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${UPSTREAM_SHA:0:7}" >> "$GITHUB_OUTPUT"
           echo "上游提交：$UPSTREAM_SHA"
 
       - name: Check Built Commit
@@ -68,6 +69,17 @@ jobs:
           key: n60-pro-vikingyfy-immortalwrt-owrt-${{steps.upstream.outputs.sha}}
           lookup-only: true
 
+      - name: Refresh Build Cache
+        if: steps.upstream-cache.outputs.cache-hit == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.FORCE)
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ./wrt/.ccache
+            ./wrt/staging_dir/host*
+            ./wrt/staging_dir/tool*
+          key: N60-PRO-VIKINGYFY-${{steps.upstream.outputs.short_sha}}
+          restore-keys: N60-PRO-VIKINGYFY
+
       - name: Report Check Result
         env:
           CACHE_HIT: ${{steps.upstream-cache.outputs.cache-hit}}
@@ -76,7 +88,7 @@ jobs:
           if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$FORCE_BUILD" == "true" ]]; then
             echo "手动强制编译。"
           elif [[ "$CACHE_HIT" == "true" ]]; then
-            echo "上游提交已经成功构建，本次不处理。"
+            echo "上游提交已经成功构建，本次不编译；已尝试刷新编译缓存。"
           else
             echo "检测到尚未成功构建的上游提交，开始编译。"
           fi
