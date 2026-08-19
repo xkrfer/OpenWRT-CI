@@ -22,10 +22,6 @@ GitHub Actions 每天北京时间 05:15 检查上游分支的最新提交：
 
 也可以在 Actions 页面手动运行 `N60-PRO`。默认启用 `FORCE`，可在上游没有变化时强制重新构建；启用 `TEST` 时只生成最终配置文件，不编译固件。
 
-## 刷机说明
-
-刷机前请阅读 [N60 Pro 自用固件完整刷机指南](docs/N60_PRO_FLASHING_GUIDE_ZH.md)。固件仅适用于 Netcore N60 Pro，请勿刷入 N60 或其他型号。
-
 ## 目录说明
 
 - `Config`：N60 Pro 固件配置
