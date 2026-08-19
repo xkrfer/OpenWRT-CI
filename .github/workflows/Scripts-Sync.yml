@@ -1,0 +1,191 @@
+# SPDX-License-Identifier: MIT
+# Copyright (C) 2026 VIKINGYFY
+
+name: Scripts-Sync
+
+on:
+  #每天早上4点检查CI上游的Scripts目录
+  schedule:
+    - cron: 0 20 * * *
+  workflow_dispatch:
+    inputs:
+      auto_merge:
+        description: '验证通过后自动合并低/中风险同步PR。'
+        default: false
+        required: true
+        type: boolean
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: scripts-upstream-sync
+  cancel-in-progress: false
+
+env:
+  AI_BASE_URL: ${{vars.AI_BASE_URL}}
+  AI_MODEL: ${{vars.AI_MODEL}}
+  AI_API_MODE: ${{vars.AI_API_MODE || 'responses'}}
+  AI_STRUCTURED_OUTPUT: ${{vars.AI_STRUCTURED_OUTPUT || 'false'}}
+  UPSTREAM_REPO: ${{vars.UPSTREAM_REPO || 'VIKINGYFY/OpenWRT-CI'}}
+  UPSTREAM_BRANCH: ${{vars.UPSTREAM_BRANCH || 'main'}}
+  SYNC_BRANCH: bot/scripts-sync
+  AUTO_MERGE: ${{github.event_name == 'workflow_dispatch' && inputs.auto_merge || vars.AI_AUTO_MERGE || 'false'}}
+
+jobs:
+  sync:
+    name: AI选择性同步Scripts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate Configuration
+        env:
+          AI_API_KEY: ${{secrets.AI_API_KEY}}
+        run: |
+          [[ "$UPSTREAM_REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || {
+            echo "UPSTREAM_REPO格式无效：$UPSTREAM_REPO" >&2
+            exit 1
+          }
+          [[ "$UPSTREAM_BRANCH" =~ ^[A-Za-z0-9._/-]+$ ]] || {
+            echo "UPSTREAM_BRANCH格式无效：$UPSTREAM_BRANCH" >&2
+            exit 1
+          }
+          [[ -n "$AI_API_KEY" ]] || { echo "缺少Secret：AI_API_KEY" >&2; exit 1; }
+          [[ -n "$AI_BASE_URL" ]] || { echo "缺少Variable：AI_BASE_URL" >&2; exit 1; }
+          [[ -n "$AI_MODEL" ]] || { echo "缺少Variable：AI_MODEL" >&2; exit 1; }
+
+      - name: Fetch Upstream
+        id: upstream
+        run: |
+          git remote add upstream "https://github.com/$UPSTREAM_REPO.git"
+          git fetch --no-tags upstream "$UPSTREAM_BRANCH"
+          UPSTREAM_REF="refs/remotes/upstream/$UPSTREAM_BRANCH"
+          UPSTREAM_SHA="$(git rev-parse "$UPSTREAM_REF")"
+
+          if [[ -f .github/upstream-sync-state.json ]]; then
+            BASE_SHA="$(python3 -c 'import json; print(json.load(open(".github/upstream-sync-state.json"))["upstream_sha"])')"
+          else
+            BASE_SHA="$(git merge-base HEAD "$UPSTREAM_REF")"
+          fi
+
+          if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null || \
+             ! git merge-base --is-ancestor "$BASE_SHA" "$UPSTREAM_REF"; then
+            echo "记录的上游基线不可用，回退到共同祖先。"
+            BASE_SHA="$(git merge-base HEAD "$UPSTREAM_REF")"
+          fi
+
+          echo "base_sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
+          echo "upstream_ref=$UPSTREAM_REF" >> "$GITHUB_OUTPUT"
+          echo "upstream_sha=$UPSTREAM_SHA" >> "$GITHUB_OUTPUT"
+          echo "upstream_short=$(git rev-parse --short=7 "$UPSTREAM_REF")" >> "$GITHUB_OUTPUT"
+
+      - name: Check Existing Sync PR
+        id: pending_pr
+        env:
+          GH_TOKEN: ${{secrets.GITHUB_TOKEN}}
+        run: |
+          PR_URL="$(gh pr list --head "$SYNC_BRANCH" --state open --json url --jq '.[0].url')"
+          if [[ -n "$PR_URL" ]]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "已有待处理同步PR，本次不覆盖：$PR_URL"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create Sync Branch
+        if: steps.pending_pr.outputs.skip != 'true'
+        run: git switch -C "$SYNC_BRANCH" "$GITHUB_SHA"
+
+      - name: Select and Merge Scripts Changes
+        id: ai_sync
+        if: steps.pending_pr.outputs.skip != 'true'
+        env:
+          AI_API_KEY: ${{secrets.AI_API_KEY}}
+        run: |
+          python3 .github/scripts/ai_scripts_sync.py \
+            --base-ref "${{steps.upstream.outputs.base_sha}}" \
+            --upstream-ref "${{steps.upstream.outputs.upstream_ref}}"
+
+      - name: Validate Merged Result
+        if: steps.pending_pr.outputs.skip != 'true' && steps.ai_sync.outputs.changed == 'true'
+        run: |
+          mapfile -t CONFIGS < <(find Config -maxdepth 1 -type f -name '*.txt' -print)
+          [[ ${#CONFIGS[@]} -eq 1 && "${CONFIGS[0]}" == "Config/N60-PRO.txt" ]] || {
+            echo "Config目录不再是N60 Pro专属配置。" >&2
+            exit 1
+          }
+
+          if grep -R -n -E '^(<<<<<<<|=======|>>>>>>>)' Scripts/; then
+            echo "Scripts目录仍含有冲突标记。" >&2
+            exit 1
+          fi
+
+          mapfile -t SHELL_SCRIPTS < <(find Scripts -type f -name '*.sh' -print)
+          for SCRIPT in "${SHELL_SCRIPTS[@]}"; do
+            bash -n "$SCRIPT"
+          done
+          if command -v shellcheck >/dev/null 2>&1; then
+            shellcheck --severity=error "${SHELL_SCRIPTS[@]}"
+          fi
+
+          while IFS= read -r PATH_NAME; do
+            case "$PATH_NAME" in
+              Scripts/*|.github/upstream-sync-state.json) ;;
+              *) echo "检测到范围外变更：$PATH_NAME" >&2; exit 1 ;;
+            esac
+          done < <(git status --porcelain | sed -E 's/^...//')
+
+          git diff --check
+
+      - name: Commit Changes
+        if: steps.pending_pr.outputs.skip != 'true' && steps.ai_sync.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Scripts .github/upstream-sync-state.json
+          git commit -m "chore: selectively sync upstream Scripts (${{steps.upstream.outputs.upstream_short}})"
+
+      - name: Push Sync Branch
+        if: steps.pending_pr.outputs.skip != 'true' && steps.ai_sync.outputs.changed == 'true'
+        run: |
+          git fetch origin "$SYNC_BRANCH:refs/remotes/origin/$SYNC_BRANCH" || true
+          git push --force-with-lease origin HEAD:"refs/heads/$SYNC_BRANCH"
+
+      - name: Create Pull Request
+        id: pull_request
+        if: steps.pending_pr.outputs.skip != 'true' && steps.ai_sync.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{secrets.GITHUB_TOKEN}}
+        run: |
+          PR_URL="$(gh pr list --head "$SYNC_BRANCH" --state open --json url --jq '.[0].url')"
+          if [[ -z "$PR_URL" ]]; then
+            PR_URL="$(gh pr create \
+              --base "$GITHUB_REF_NAME" \
+              --head "$SYNC_BRANCH" \
+              --title "chore: AI选择性同步上游Scripts" \
+              --body-file .upstream-sync-report.md)"
+          fi
+          echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
+          echo "同步PR：$PR_URL"
+
+      - name: Enable Auto Merge
+        if: >-
+          steps.ai_sync.outputs.changed == 'true' &&
+          steps.ai_sync.outputs.safe_to_merge == 'true' &&
+          steps.pending_pr.outputs.skip != 'true' &&
+          env.AUTO_MERGE == 'true'
+        env:
+          GH_TOKEN: ${{secrets.GITHUB_TOKEN}}
+        run: |
+          gh pr merge "${{steps.pull_request.outputs.pr_url}}" --auto --squash --delete-branch || {
+            echo "::warning::仓库未启用Auto-merge或分支规则不允许，PR已保留供人工审核。"
+          }
+
+      - name: Add Report to Summary
+        if: steps.pending_pr.outputs.skip != 'true' && steps.ai_sync.outputs.changed == 'true'
+        run: cat .upstream-sync-report.md >> "$GITHUB_STEP_SUMMARY"

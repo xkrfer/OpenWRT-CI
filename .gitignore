@@ -16,3 +16,6 @@
 # Scripts/Settings.sh、Scripts/Packages.sh 读取的本机私有覆盖，不进仓库
 /Config/PRIVATE.txt
 /Scripts/PRIVATE.sh
+
+# AI Scripts同步工作流的临时报告
+/.upstream-sync-report.md
