@@ -16,7 +16,7 @@ jobs:
   auto_clean:
     runs-on: ubuntu-latest
     steps:
-      - name: Delete old Releases and Workflows
+      - name: Delete Old Releases
         uses: ophub/delete-releases-workflows@main
         with:
           gh_token: ${{secrets.GITHUB_TOKEN}}
@@ -24,5 +24,3 @@ jobs:
           #仓库仅发布N60 Pro固件；始终保留最近3个版本
           releases_keep_latest: 3
           delete_tags: true
-          delete_workflows: true
-          workflows_keep_day: 0

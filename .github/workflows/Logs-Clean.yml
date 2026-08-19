@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: MIT
+# Copyright (C) 2026 VIKINGYFY
+
+name: Logs-Clean
+
+on:
+  #每天早上5点05分清理已完成的构建日志
+  schedule:
+    - cron: 5 21 * * *
+  #手动清理
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: write
+
+jobs:
+  logs_clean:
+    name: 清理构建日志
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete Workflow Runs
+        uses: ophub/delete-releases-workflows@main
+        with:
+          gh_token: ${{secrets.GITHUB_TOKEN}}
+          delete_releases: false
+          delete_workflows: true
+          workflows_keep_day: 0
