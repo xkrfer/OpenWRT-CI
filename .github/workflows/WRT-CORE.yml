@@ -166,11 +166,7 @@ jobs:
         run: |
           cd ./wrt/
 
-          if [[ "${WRT_CONFIG,,}" == *"test"* ]]; then
-            cat $GITHUB_WORKSPACE/Config/$WRT_CONFIG.txt >> .config
-          else
-            cat $GITHUB_WORKSPACE/Config/$WRT_CONFIG.txt $GITHUB_WORKSPACE/Config/GENERAL.txt >> .config
-          fi
+          cat $GITHUB_WORKSPACE/Config/$WRT_CONFIG.txt >> .config
 
           $GITHUB_WORKSPACE/Scripts/Settings.sh
 
@@ -232,9 +228,8 @@ jobs:
           tag_name: ${{env.WRT_CONFIG}}-${{env.WRT_INFO}}-${{env.WRT_BRANCH}}-${{env.WRT_DATE}}
           files: ./wrt/upload/*.*
           body: |
-            这是个平台固件包，内含多个设备！
-            请注意选择你需要的设备固件！
-            不要问，刷就完事了！
+            这是 Netcore N60 Pro 专用固件。
+            仅适用于 Netcore N60 Pro，请勿刷入其他设备！
 
             全系带开源硬件加速，别问了！
 

@@ -1,3 +1,4 @@
+#Netcore N60 Pro 专用配置
 #设备平台
 CONFIG_TARGET_mediatek=y
 CONFIG_TARGET_mediatek_filogic=y

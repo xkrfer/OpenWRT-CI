@@ -1,0 +1,135 @@
+# SPDX-License-Identifier: MIT
+# Copyright (C) 2026 VIKINGYFY
+
+#CI项目
+name: N60-PRO
+
+#CI计划
+on:
+  #每天早上5点15分检查上游；仅在源码提交变化时编译
+  schedule:
+    - cron: 15 21 * * *
+  #手动编译
+  workflow_dispatch:
+    inputs:
+      FORCE:
+        description: '忽略上游检查并强制编译。'
+        default: true
+        required: true
+        type: boolean
+      PACKAGE:
+        description: '手动调整插件包，多个请用\n符号隔开。'
+        required: false
+        type: string
+      TEST:
+        description: '仅输出配置文件，不编译固件。'
+        default: false
+        required: false
+        type: boolean
+
+#CI权限
+permissions:
+  actions: write
+  contents: write
+
+#同一时间只运行一个N60 Pro检查/编译任务
+concurrency:
+  group: n60-pro-${{github.ref}}
+  cancel-in-progress: false
+
+#CI任务
+jobs:
+  check-upstream:
+    name: 检查上游更新
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{steps.upstream.outputs.sha}}
+      cache-hit: ${{steps.upstream-cache.outputs.cache-hit}}
+    steps:
+      - name: Get Upstream Commit
+        id: upstream
+        env:
+          WRT_REPO: https://github.com/VIKINGYFY/immortalwrt.git
+          WRT_BRANCH: owrt
+        run: |
+          UPSTREAM_SHA="$(git ls-remote "$WRT_REPO" "refs/heads/$WRT_BRANCH" | awk 'NR == 1 {print $1}')"
+          if [[ ! "$UPSTREAM_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "无法获取上游分支提交：$WRT_REPO ($WRT_BRANCH)" >&2
+            exit 1
+          fi
+          echo "sha=$UPSTREAM_SHA" >> "$GITHUB_OUTPUT"
+          echo "上游提交：$UPSTREAM_SHA"
+
+      - name: Check Built Commit
+        id: upstream-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .upstream-state/n60-pro
+          key: n60-pro-vikingyfy-immortalwrt-owrt-${{steps.upstream.outputs.sha}}
+          lookup-only: true
+
+      - name: Report Check Result
+        env:
+          CACHE_HIT: ${{steps.upstream-cache.outputs.cache-hit}}
+          FORCE_BUILD: ${{inputs.FORCE}}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && "$FORCE_BUILD" == "true" ]]; then
+            echo "手动强制编译。"
+          elif [[ "$CACHE_HIT" == "true" ]]; then
+            echo "上游提交已经成功构建，本次不处理。"
+          else
+            echo "检测到尚未成功构建的上游提交，开始编译。"
+          fi
+
+  config:
+    name: N60-PRO
+    needs: check-upstream
+    if: github.event_name == 'workflow_dispatch' && inputs.FORCE || needs.check-upstream.outputs.cache-hit != 'true'
+    #调用公用编译核心WRT-CORE.yml
+    uses: ./.github/workflows/WRT-CORE.yml
+    with:
+      #编译配置
+      WRT_CONFIG: N60-PRO
+      #默认主题
+      WRT_THEME: aurora
+      #默认主机名
+      WRT_NAME: OWRT
+      #默认WIFI名称
+      WRT_SSID: OWRT
+      #默认WIFI密码
+      WRT_WORD: 12345678
+      #默认地址
+      WRT_IP: 192.168.100.1
+      #默认密码，仅作提示，修改无用
+      WRT_PW: 无
+      #源码链接
+      WRT_REPO: https://github.com/VIKINGYFY/immortalwrt.git
+      #源码分支
+      WRT_BRANCH: owrt
+      #源码名称
+      WRT_SOURCE: VIKINGYFY/immortalwrt
+      #插件调整
+      WRT_PACKAGE: ${{inputs.PACKAGE}}
+      #仅输出配置文件
+      WRT_TEST: ${{inputs.TEST}}
+
+  mark-built:
+    name: 记录成功构建
+    needs:
+      - check-upstream
+      - config
+    if: needs.config.result == 'success' && needs.check-upstream.outputs.cache-hit != 'true' && inputs.TEST != true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create Build Marker
+        env:
+          UPSTREAM_SHA: ${{needs.check-upstream.outputs.sha}}
+        run: |
+          mkdir -p .upstream-state
+          echo "$UPSTREAM_SHA" > .upstream-state/n60-pro
+
+      - name: Save Built Commit
+        uses: actions/cache/save@v4
+        with:
+          path: .upstream-state/n60-pro
+          key: n60-pro-vikingyfy-immortalwrt-owrt-${{needs.check-upstream.outputs.sha}}

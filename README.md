@@ -1,64 +1,37 @@
-# 高质量<免费>交流群
+# Netcore N60 Pro OpenWrt CI
 
-点击链接加入群聊【IPQ技术讨论群】：https://qm.qq.com/q/v7nMhzB4oU
-该群为普通交流群。
+本仓库仅用于构建磊科 Netcore N60 Pro 固件，不包含其他设备的构建配置。
 
-# 高质量<付费>中转站
+## 构建信息
 
-点击链接加入群聊【LiBwrt-Ai学习】：https://qm.qq.com/q/HTa7OiWNCU
-该群为AI中转站群。
+- 设备：Netcore N60 Pro
+- 平台：MediaTek Filogic / MT7986A
+- 上游源码：<https://github.com/VIKINGYFY/immortalwrt.git>
+- 上游分支：`owrt`
+- 固件配置：[`Config/N60-PRO.txt`](Config/N60-PRO.txt)
+- 编译工作流：[`N60-PRO.yml`](.github/workflows/N60-PRO.yml)
 
-# 本地编译器
+## 自动构建
 
-https://github.com/VIKINGYFY/OWRT-Tools.git
+GitHub Actions 每天北京时间 05:15 检查上游分支的最新提交：
 
-# 自用修改版插件
+- 上游提交发生变化时，自动构建并发布 N60 Pro 固件；
+- 上游提交没有变化时，跳过编译；
+- 构建失败时不会记录成功标记，下一次检查会自动重试；
+- Release 清理任务每天运行，并保留最近 3 个 N60 Pro 固件版本。
 
-https://github.com/VIKINGYFY/packages.git
+也可以在 Actions 页面手动运行 `N60-PRO`。默认启用 `FORCE`，可在上游没有变化时强制重新构建；启用 `TEST` 时只生成最终配置文件，不编译固件。
 
-# OpenWRT-CI
+## 刷机说明
 
-官方版：
+刷机前请阅读 [N60 Pro 自用固件完整刷机指南](docs/N60_PRO_FLASHING_GUIDE_ZH.md)。固件仅适用于 Netcore N60 Pro，请勿刷入 N60 或其他型号。
 
-https://github.com/immortalwrt/immortalwrt.git
+## 目录说明
 
-自用版：
+- `Config`：N60 Pro 固件配置
+- `Scripts`：软件包与默认设置脚本
+- `.github/workflows`：自动检查、编译、发布和清理工作流
 
-https://github.com/VIKINGYFY/immortalwrt.git
+## License
 
-# U-BOOT
-
-高通版-沉心：
-
-https://github.com/chenxin527/uboot-qsdk12.5-build.git
-
-高通版-小猪：
-
-https://github.com/1980490718/u-boot-2016.git
-
-联发科-全新版：
-
-https://github.com/VIKINGYFY/UBOOT-CI/releases
-
-联发科-官方版：
-
-https://drive.wrt.moe/uboot/mediatek
-
-# 固件简要说明
-
-固件每天早上5点自动编译。
-
-固件信息里的时间为编译开始的时间，方便核对上游源码提交时间。
-
-MEDIATEK系列、QUALCOMMAX系列、ROCKCHIP系列、X86系列。
-
-# 目录简要说明
-
-workflows——自定义CI配置
-
-Scripts——自定义脚本
-
-Config——自定义配置
-
-#
-[![Stargazers over time](https://starchart.cc/VIKINGYFY/OpenWRT-CI.svg?variant=adaptive)](https://starchart.cc/VIKINGYFY/OpenWRT-CI)
+[MIT](LICENSE)

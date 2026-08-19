@@ -21,7 +21,8 @@ jobs:
         with:
           gh_token: ${{secrets.GITHUB_TOKEN}}
           delete_releases: true
-          releases_keep_latest: 0
+          #仓库仅发布N60 Pro固件；始终保留最近3个版本
+          releases_keep_latest: 3
           delete_tags: true
           delete_workflows: true
           workflows_keep_day: 0

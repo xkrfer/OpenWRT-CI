@@ -1,0 +1,18 @@
+# macOS
+.DS_Store
+._*
+
+# 编辑器临时文件
+*.swp
+*.swo
+*~
+
+# WRT-CORE 会把上游源码克隆到 ./wrt/，本地编译产物也落在这里
+/wrt/
+
+# N60-PRO 工作流写入的上游构建标记，只存在于 Actions cache
+.upstream-state/
+
+# Scripts/Settings.sh、Scripts/Packages.sh 读取的本机私有覆盖，不进仓库
+/Config/PRIVATE.txt
+/Scripts/PRIVATE.sh
