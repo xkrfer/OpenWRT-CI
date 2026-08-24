@@ -37,8 +37,17 @@ on:
       WRT_SOURCE:
         required: true
         type: string
+      WRT_SHA:
+        description: 'Optional pinned upstream commit SHA.'
+        required: false
+        type: string
       WRT_PACKAGE:
         required: false
+        type: string
+      WRT_VARIANTS:
+        description: 'JSON array of mutually exclusive firmware variants.'
+        required: false
+        default: '["default"]'
         type: string
       WRT_TEST:
         required: false
@@ -56,13 +65,63 @@ env:
   WRT_REPO: ${{inputs.WRT_REPO}}
   WRT_BRANCH: ${{inputs.WRT_BRANCH}}
   WRT_SOURCE: ${{inputs.WRT_SOURCE}}
+  WRT_SHA: ${{inputs.WRT_SHA}}
   WRT_PACKAGE: ${{inputs.WRT_PACKAGE}}
   WRT_TEST: ${{inputs.WRT_TEST}}
 
 jobs:
-  core:
-    name: ${{inputs.WRT_SOURCE}}
+  prepare:
+    name: Prepare build
     runs-on: ubuntu-latest
+    outputs:
+      date: ${{steps.values.outputs.date}}
+      hash: ${{steps.values.outputs.hash}}
+      sha: ${{steps.values.outputs.sha}}
+      info: ${{steps.values.outputs.info}}
+      mark: ${{steps.values.outputs.mark}}
+      target: ${{steps.values.outputs.target}}
+    steps:
+      - name: Checkout Projects
+        uses: actions/checkout@main
+
+      - name: Prepare Build Values
+        id: values
+        run: |
+          UPSTREAM_SHA="$WRT_SHA"
+          if [[ -z "$UPSTREAM_SHA" ]]; then
+            UPSTREAM_SHA="$(git ls-remote "$WRT_REPO" "refs/heads/$WRT_BRANCH" | awk 'NR == 1 {print $1}')"
+          fi
+          if [[ ! "$UPSTREAM_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "无法获取上游分支提交：$WRT_REPO ($WRT_BRANCH)" >&2
+            exit 1
+          fi
+
+          echo "date=$(TZ=UTC-8 date +"%Y.%m.%d-%H.%M")" >> "$GITHUB_OUTPUT"
+          echo "hash=${UPSTREAM_SHA:0:7}" >> "$GITHUB_OUTPUT"
+          echo "sha=$UPSTREAM_SHA" >> "$GITHUB_OUTPUT"
+          echo "info=${WRT_SOURCE%%/*}" >> "$GITHUB_OUTPUT"
+          echo "mark=${GITHUB_REPOSITORY%%/*}" >> "$GITHUB_OUTPUT"
+          echo "target=$(grep -m 1 -oP '^CONFIG_TARGET_\K[\w]+(?=\=y)' "./Config/$WRT_CONFIG.txt")" >> "$GITHUB_OUTPUT"
+
+  core:
+    name: ${{inputs.WRT_SOURCE}} (${{matrix.variant}})
+    needs: prepare
+    #单个固件失败只影响该矩阵项；是否整体失败由 release 根据产物数量判断
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: ${{fromJSON(inputs.WRT_VARIANTS)}}
+    runs-on: ubuntu-latest
+    env:
+      WRT_DATE: ${{needs.prepare.outputs.date}}
+      WRT_HASH: ${{needs.prepare.outputs.hash}}
+      WRT_INFO: ${{needs.prepare.outputs.info}}
+      WRT_MARK: ${{needs.prepare.outputs.mark}}
+      WRT_TARGET: ${{needs.prepare.outputs.target}}
+      WRT_UPSTREAM_SHA: ${{needs.prepare.outputs.sha}}
+      WRT_VARIANT: ${{matrix.variant}}
+      WRT_WIFI: wifi-yes
     steps:
       - name: Checkout Projects
         uses: actions/checkout@main
@@ -86,24 +145,15 @@ jobs:
           sudo chown $USER:$USER /mnt/build_wrt
           sudo ln -s /mnt/build_wrt $GITHUB_WORKSPACE/wrt
 
-      - name: Initialization Values
-        run: |
-          echo "WRT_DATE=$(TZ=UTC-8 date +"%Y.%m.%d-%H.%M")" >> $GITHUB_ENV
-          echo "WRT_MARK=${GITHUB_REPOSITORY%%/*}" >> $GITHUB_ENV
-          echo "WRT_INFO=${WRT_SOURCE%%/*}" >> $GITHUB_ENV
-          echo "WRT_TARGET=$(grep -m 1 -oP '^CONFIG_TARGET_\K[\w]+(?=\=y)' ./Config/$WRT_CONFIG.txt)" >> $GITHUB_ENV
-          echo "WRT_WIFI=wifi-yes" >> $GITHUB_ENV
-          echo "WRT_KVER=none" >> $GITHUB_ENV
-          echo "WRT_LIST=none" >> $GITHUB_ENV
-
       - name: Clone Code
         run: |
-          git clone --depth=1 --single-branch --branch $WRT_BRANCH $WRT_REPO ./wrt/
-
-          cd ./wrt/ && echo "WRT_HASH=$(git rev-parse HEAD | cut -c1-7)" >> $GITHUB_ENV
+          git -C ./wrt/ init
+          git -C ./wrt/ remote add origin "$WRT_REPO"
+          git -C ./wrt/ fetch --depth=1 origin "$WRT_UPSTREAM_SHA"
+          git -C ./wrt/ checkout --detach FETCH_HEAD
 
           # GitHub Action 移除国内下载源
-          PROJECT_MIRRORS_FILE="./scripts/projectsmirrors.json"
+          PROJECT_MIRRORS_FILE="./wrt/scripts/projectsmirrors.json"
           if [ -f "$PROJECT_MIRRORS_FILE" ]; then
             sed -i '/.cn\//d; /tencent/d; /aliyun/d' "$PROJECT_MIRRORS_FILE"
           fi
@@ -112,19 +162,29 @@ jobs:
         run: |
           find ./ -maxdepth 3 -type f -iregex ".*\(txt\|sh\)$" -exec dos2unix {} \; -exec chmod +x {} \;
 
-      - name: Check Caches
-        id: check-cache
+      - name: Restore Shared Toolchain Cache
+        id: restore-toolchain-cache
         if: env.WRT_TEST != 'true'
-        uses: actions/cache@main
+        uses: actions/cache/restore@v4
         with:
-          key: ${{env.WRT_CONFIG}}-${{env.WRT_INFO}}-${{env.WRT_HASH}}
-          restore-keys: ${{env.WRT_CONFIG}}-${{env.WRT_INFO}}
+          key: ${{env.WRT_CONFIG}}-${{env.WRT_INFO}}-toolchain-${{env.WRT_HASH}}
+          restore-keys: ${{env.WRT_CONFIG}}-${{env.WRT_INFO}}-toolchain-
           path: |
-            ./wrt/.ccache
             ./wrt/staging_dir/host*
             ./wrt/staging_dir/tool*
 
-      - name: Update Caches
+      - name: Restore Variant Compiler Cache
+        id: restore-compiler-cache
+        if: env.WRT_TEST != 'true'
+        uses: actions/cache/restore@v4
+        with:
+          key: ${{env.WRT_CONFIG}}-${{env.WRT_INFO}}-ccache-${{env.WRT_VARIANT}}-${{env.WRT_HASH}}
+          restore-keys: |
+            ${{env.WRT_CONFIG}}-${{env.WRT_INFO}}-ccache-${{env.WRT_VARIANT}}-
+            ${{env.WRT_CONFIG}}-${{env.WRT_INFO}}-ccache-
+          path: ./wrt/.ccache
+
+      - name: Prepare Restored Caches
         if: env.WRT_TEST != 'true'
         run: |
           if [ -d "./wrt/staging_dir" ]; then
@@ -137,15 +197,6 @@ jobs:
             echo "toolchain skiped done!"
           else
             echo "caches missed!"
-          fi
-
-          if ${{steps.check-cache.outputs.cache-hit != 'true'}}; then
-            CACHE_LIST=$(gh cache list --key "$WRT_CONFIG-$WRT_INFO" | cut -f 1)
-            for CACHE_KEY in $CACHE_LIST; do
-              gh cache delete $CACHE_KEY
-            done
-
-            echo "caches cleanup done!"
           fi
 
       - name: Update Feeds
@@ -170,7 +221,38 @@ jobs:
 
           $GITHUB_WORKSPACE/Scripts/Settings.sh
 
-          make defconfig -j$(nproc) && make clean -j$(nproc)
+          make defconfig -j$(nproc)
+
+          if [[ "$WRT_VARIANT" == "dae" ]]; then
+            DAE_REQUIRED_OPTIONS=(
+              CONFIG_PACKAGE_luci-app-daed
+              CONFIG_PACKAGE_daed
+              CONFIG_DEVEL
+              CONFIG_KERNEL_DEBUG_INFO
+              CONFIG_KERNEL_DEBUG_INFO_BTF
+              CONFIG_KERNEL_CGROUPS
+              CONFIG_KERNEL_CGROUP_BPF
+              CONFIG_KERNEL_BPF_EVENTS
+              CONFIG_BPF_TOOLCHAIN_HOST
+              CONFIG_KERNEL_XDP_SOCKETS
+              CONFIG_PACKAGE_kmod-xdp-sockets-diag
+              CONFIG_DAED_USE_KERNEL_BTF
+            )
+
+            for OPTION in "${DAE_REQUIRED_OPTIONS[@]}"; do
+              if ! grep -qx "$OPTION=y" .config; then
+                echo "dae required option was removed by defconfig: $OPTION" >&2
+                exit 1
+              fi
+            done
+
+            if grep -qx 'CONFIG_KERNEL_DEBUG_INFO_REDUCED=y' .config; then
+              echo "dae requires full kernel debug information for integrated BTF." >&2
+              exit 1
+            fi
+          fi
+
+          make clean -j$(nproc)
 
       - name: Download Packages
         if: env.WRT_TEST != 'true'
@@ -202,12 +284,9 @@ jobs:
         run: |
           cd ./wrt/ && mkdir ./upload/
 
-          cp -f ./.config ./upload/netcore-n60-pro-config-"$WRT_DATE"-"$WRT_HASH".txt
+          cp -f ./.config ./upload/netcore-n60-pro-"$WRT_VARIANT"-config-"$WRT_DATE"-"$WRT_HASH".txt
 
           if [[ $WRT_TEST != 'true' ]]; then
-            echo "WRT_KVER=$(find ./bin/targets/ -type f -name "*.manifest" -exec grep -oP '^kernel - \K[\d\.]+' {} \;)" >> $GITHUB_ENV
-            echo "WRT_LIST=$(find ./bin/targets/ -type f -name "*.manifest" -exec grep -oP '^luci-(app|theme)[^ ]*' {} \; | tr '\n' ' ')" >> $GITHUB_ENV
-
             find ./bin/targets/ -iregex ".*\(buildinfo\|json\|sha256sums\|packages\)$" -exec rm -rf {} +
 
             while IFS= read -r FILE; do
@@ -218,27 +297,149 @@ jobs:
               SUFFIX="${SUFFIX#-}"
 
               if [[ -n "$SUFFIX" ]]; then
-                NEW_FILE="netcore-n60-pro-$SUFFIX-$WRT_DATE-$WRT_HASH.$EXT"
+                NEW_FILE="netcore-n60-pro-$WRT_VARIANT-$SUFFIX-$WRT_DATE-$WRT_HASH.$EXT"
               else
-                NEW_FILE="netcore-n60-pro-$WRT_DATE-$WRT_HASH.$EXT"
+                NEW_FILE="netcore-n60-pro-$WRT_VARIANT-$WRT_DATE-$WRT_HASH.$EXT"
               fi
 
               mv -f "$FILE" "./upload/$NEW_FILE"
             done < <(find ./bin/targets/ -type f -iname "*netcore_n60-pro*")
 
-            find ./bin/targets/ -type f -exec mv -f {} ./upload/ \;
+            while IFS= read -r FILE; do
+              FILE_NAME=$(basename "$FILE")
+              mv -f "$FILE" "./upload/$WRT_VARIANT-$FILE_NAME"
+            done < <(find ./bin/targets/ -type f)
 
             make clean -j$(nproc)
+          fi
+
+      - name: Upload Firmware Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{env.WRT_CONFIG}}-${{matrix.variant}}-${{env.WRT_HASH}}
+          path: ./wrt/upload/*.*
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Save Shared Toolchain Cache
+        if: env.WRT_TEST != 'true' && matrix.variant == 'dae' && steps.restore-toolchain-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          key: ${{env.WRT_CONFIG}}-${{env.WRT_INFO}}-toolchain-${{env.WRT_HASH}}
+          path: |
+            ./wrt/staging_dir/host*
+            ./wrt/staging_dir/tool*
+
+      - name: Save Variant Compiler Cache
+        if: env.WRT_TEST != 'true' && steps.restore-compiler-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          key: ${{env.WRT_CONFIG}}-${{env.WRT_INFO}}-ccache-${{env.WRT_VARIANT}}-${{env.WRT_HASH}}
+          path: ./wrt/.ccache
+
+      - name: Cleanup Superseded Caches
+        if: env.WRT_TEST != 'true'
+        run: |
+          delete_old_caches() {
+            local PREFIX="$1"
+            local CURRENT_KEY="$2"
+
+            while IFS=$'\t' read -r CACHE_ID CACHE_KEY; do
+              if [[ "$CACHE_KEY" == "$PREFIX"* && "$CACHE_KEY" != "$CURRENT_KEY" ]]; then
+                gh cache delete "$CACHE_ID" || echo "failed to delete old cache: $CACHE_KEY"
+              fi
+            done < <(gh cache list --limit 100 --json id,key --jq '.[] | [.id, .key] | @tsv')
+          }
+
+          TOOLCHAIN_KEY="$WRT_CONFIG-$WRT_INFO-toolchain-$WRT_HASH"
+          COMPILER_KEY="$WRT_CONFIG-$WRT_INFO-ccache-$WRT_VARIANT-$WRT_HASH"
+
+          if [[ "$WRT_VARIANT" == "dae" ]]; then
+            delete_old_caches "$WRT_CONFIG-$WRT_INFO-toolchain-" "$TOOLCHAIN_KEY"
+          fi
+          delete_old_caches "$WRT_CONFIG-$WRT_INFO-ccache-$WRT_VARIANT-" "$COMPILER_KEY"
+
+          echo "superseded caches cleanup done!"
+
+  release:
+    name: Release successful firmware variants
+    needs:
+      - prepare
+      - core
+    if: always() && needs.prepare.result == 'success'
+    runs-on: ubuntu-latest
+    env:
+      WRT_DATE: ${{needs.prepare.outputs.date}}
+      WRT_HASH: ${{needs.prepare.outputs.hash}}
+      WRT_TARGET: ${{needs.prepare.outputs.target}}
+      WRT_KVER: none
+      WRT_LIST: none
+      WRT_VARIANTS_JSON: ${{inputs.WRT_VARIANTS}}
+      WRT_VARIANTS_BUILT: none
+      WRT_VARIANTS_FAILED: none
+    steps:
+      - name: Download Firmware Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ${{inputs.WRT_CONFIG}}-*-${{needs.prepare.outputs.hash}}
+          path: ./release-files
+          merge-multiple: true
+
+      - name: Collect Release Information
+        run: |
+          BUILT_VARIANTS=()
+          FAILED_VARIANTS=()
+
+          while IFS= read -r VARIANT; do
+            if find ./release-files -maxdepth 1 -type f \
+              -name "netcore-n60-pro-$VARIANT-config-*" -print -quit 2>/dev/null | grep -q .; then
+              BUILT_VARIANTS+=("$VARIANT")
+            else
+              FAILED_VARIANTS+=("$VARIANT")
+            fi
+          done < <(jq -r '.[]' <<< "$WRT_VARIANTS_JSON")
+
+          if [[ ${#BUILT_VARIANTS[@]} -eq 0 ]]; then
+            echo "All firmware variants failed; no releasable artifacts were produced." >&2
+            echo "### 固件构建结果" >> "$GITHUB_STEP_SUMMARY"
+            echo "全部固件构建失败。" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          printf -v BUILT_TEXT '%s, ' "${BUILT_VARIANTS[@]}"
+          BUILT_TEXT="${BUILT_TEXT%, }"
+          FAILED_TEXT=none
+          if [[ ${#FAILED_VARIANTS[@]} -gt 0 ]]; then
+            printf -v FAILED_TEXT '%s, ' "${FAILED_VARIANTS[@]}"
+            FAILED_TEXT="${FAILED_TEXT%, }"
+          fi
+
+          echo "WRT_VARIANTS_BUILT=$BUILT_TEXT" >> "$GITHUB_ENV"
+          echo "WRT_VARIANTS_FAILED=$FAILED_TEXT" >> "$GITHUB_ENV"
+
+          echo "### 固件构建结果" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 成功：$BUILT_TEXT" >> "$GITHUB_STEP_SUMMARY"
+          echo "- 失败：$FAILED_TEXT" >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ $WRT_TEST != 'true' ]]; then
+            KVER=$(find ./release-files -type f -name "*.manifest" -exec grep -hoP '^kernel - \K[\d\.]+' {} \; | sort -u | tr '\n' ' ')
+            LIST=$(find ./release-files -type f -name "*.manifest" -exec grep -hoP '^luci-(app|theme)[^ ]*' {} \; | sort -u | tr '\n' ' ')
+            echo "WRT_KVER=${KVER:-none}" >> "$GITHUB_ENV"
+            echo "WRT_LIST=${LIST:-none}" >> "$GITHUB_ENV"
           fi
 
       - name: Release Firmware
         uses: softprops/action-gh-release@master
         with:
           tag_name: ${{env.WRT_CONFIG}}-${{env.WRT_DATE}}-${{env.WRT_HASH}}
-          files: ./wrt/upload/*.*
+          files: ./release-files/*.*
           body: |
             这是 Netcore N60 Pro 专用固件。
             仅适用于 Netcore N60 Pro，请勿刷入其他设备！
+
+            本次成功构建：${{env.WRT_VARIANTS_BUILT}}
+            本次构建失败：${{env.WRT_VARIANTS_FAILED}}
+            各版本互斥，请按文件名选择。
 
             全系带开源硬件加速，别问了！
 

@@ -37,6 +37,37 @@ echo "CONFIG_LUCI_LANG_zh_Hans=y" >> ./.config
 echo "CONFIG_PACKAGE_luci-theme-$WRT_THEME=y" >> ./.config
 echo "CONFIG_PACKAGE_luci-app-$WRT_THEME-config=y" >> ./.config
 
+#每个构建变体只启用一种透明代理，避免三套代理及其依赖互相干扰
+case "${WRT_VARIANT:-default}" in
+	nikki)
+		echo "CONFIG_PACKAGE_luci-app-nikki=y" >> ./.config
+		;;
+	homeproxy)
+		echo "CONFIG_PACKAGE_luci-app-homeproxy=y" >> ./.config
+		;;
+	dae)
+		echo "CONFIG_PACKAGE_luci-app-daed=y" >> ./.config
+		# dae 依赖 eBPF CO-RE；沿用历史成功构建验证过的内核 BTF 方案
+		echo "CONFIG_DEVEL=y" >> ./.config
+		echo "CONFIG_KERNEL_DEBUG_INFO=y" >> ./.config
+		echo "CONFIG_KERNEL_DEBUG_INFO_REDUCED=n" >> ./.config
+		echo "CONFIG_KERNEL_DEBUG_INFO_BTF=y" >> ./.config
+		echo "CONFIG_KERNEL_CGROUPS=y" >> ./.config
+		echo "CONFIG_KERNEL_CGROUP_BPF=y" >> ./.config
+		echo "CONFIG_KERNEL_BPF_EVENTS=y" >> ./.config
+		echo "CONFIG_BPF_TOOLCHAIN_HOST=y" >> ./.config
+		echo "CONFIG_KERNEL_XDP_SOCKETS=y" >> ./.config
+		echo "CONFIG_PACKAGE_kmod-xdp-sockets-diag=y" >> ./.config
+		echo "CONFIG_DAED_USE_KERNEL_BTF=y" >> ./.config
+		;;
+	default)
+		;;
+	*)
+		echo "Unsupported firmware variant: $WRT_VARIANT" >&2
+		exit 1
+		;;
+esac
+
 #引入私有扩展配置
 if [ -f "$GITHUB_WORKSPACE/Config/PRIVATE.txt" ]; then
 	echo "Applying private configurations from PRIVATE.txt..."

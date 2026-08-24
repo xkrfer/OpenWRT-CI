@@ -69,16 +69,43 @@ jobs:
           key: n60-pro-vikingyfy-immortalwrt-owrt-${{steps.upstream.outputs.sha}}
           lookup-only: true
 
-      - name: Refresh Build Cache
+      - name: Refresh Shared Toolchain Cache
         if: steps.upstream-cache.outputs.cache-hit == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.FORCE)
         uses: actions/cache/restore@v4
         with:
           path: |
-            ./wrt/.ccache
             ./wrt/staging_dir/host*
             ./wrt/staging_dir/tool*
-          key: N60-PRO-VIKINGYFY-${{steps.upstream.outputs.short_sha}}
-          restore-keys: N60-PRO-VIKINGYFY
+          key: N60-PRO-VIKINGYFY-toolchain-${{steps.upstream.outputs.short_sha}}
+          restore-keys: N60-PRO-VIKINGYFY-toolchain-
+          lookup-only: true
+
+      - name: Refresh Nikki Compiler Cache
+        if: steps.upstream-cache.outputs.cache-hit == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.FORCE)
+        uses: actions/cache/restore@v4
+        with:
+          path: ./wrt/.ccache
+          key: N60-PRO-VIKINGYFY-ccache-nikki-${{steps.upstream.outputs.short_sha}}
+          restore-keys: N60-PRO-VIKINGYFY-ccache-nikki-
+          lookup-only: true
+
+      - name: Refresh HomeProxy Compiler Cache
+        if: steps.upstream-cache.outputs.cache-hit == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.FORCE)
+        uses: actions/cache/restore@v4
+        with:
+          path: ./wrt/.ccache
+          key: N60-PRO-VIKINGYFY-ccache-homeproxy-${{steps.upstream.outputs.short_sha}}
+          restore-keys: N60-PRO-VIKINGYFY-ccache-homeproxy-
+          lookup-only: true
+
+      - name: Refresh dae Compiler Cache
+        if: steps.upstream-cache.outputs.cache-hit == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.FORCE)
+        uses: actions/cache/restore@v4
+        with:
+          path: ./wrt/.ccache
+          key: N60-PRO-VIKINGYFY-ccache-dae-${{steps.upstream.outputs.short_sha}}
+          restore-keys: N60-PRO-VIKINGYFY-ccache-dae-
+          lookup-only: true
 
       - name: Report Check Result
         env:
@@ -120,8 +147,12 @@ jobs:
       WRT_BRANCH: owrt
       #源码名称
       WRT_SOURCE: VIKINGYFY/immortalwrt
+      #固定为检查阶段确认的同一个上游提交
+      WRT_SHA: ${{needs.check-upstream.outputs.sha}}
       #插件调整
       WRT_PACKAGE: ${{inputs.PACKAGE}}
+      #一次并行构建三种互斥代理固件
+      WRT_VARIANTS: '["nikki", "homeproxy", "dae"]'
       #仅输出配置文件
       WRT_TEST: ${{inputs.TEST}}
 

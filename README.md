@@ -15,13 +15,13 @@
 
 GitHub Actions 每 3 天北京时间 05:15 检查上游分支的最新提交：
 
-- 上游提交发生变化时，自动构建并发布 N60 Pro 固件；
-- 上游提交没有变化时，跳过编译并恢复一次编译缓存，避免缓存因连续 7 天未访问而失效；
-- 构建失败时不会记录成功标记，下一次检查会自动重试；
+- 上游提交发生变化时，并行构建并在同一个 Release 中发布 Nikki、HomeProxy、dae 三种 N60 Pro 固件；
+- 上游提交没有变化时，跳过编译并刷新共享工具链及三种固件各自的编译缓存，避免缓存因长期未访问而失效；
+- 单个固件构建失败不会导致整个任务失败，其余成功固件仍会发布；只有三种固件全部失败时任务才会失败并等待下次重试；
 - Release 清理任务每周一北京时间 05:00 运行，并保留最近 3 个 N60 Pro 固件版本；
 - 构建日志清理任务每周一北京时间 05:05 运行，清理已完成的 Actions 运行记录。
 
-也可以在 Actions 页面手动运行 `N60-PRO`。默认启用 `FORCE`，可在上游没有变化时强制重新构建；启用 `TEST` 时只生成最终配置文件，不编译固件。
+也可以在 Actions 页面手动运行 `N60-PRO`。默认启用 `FORCE`，可在上游没有变化时强制重新构建；启用 `TEST` 时只生成 Nikki、HomeProxy、dae 三份最终配置文件，不编译固件。
 
 ## AI 选择性同步 Scripts
 
@@ -58,12 +58,16 @@ Release 标签采用 `N60-PRO-年.月.日-时.分-上游提交` 格式，例如�
 
 `N60-PRO-2026.08.19-11.23-cb29312`
 
-主要固件文件沿用相同的时间和提交标识，例如：
+三种固件分别只预装 Nikki、HomeProxy 或 dae，文件名包含对应的变体标识。主要固件文件沿用相同的时间和提交标识，例如：
 
-- `netcore-n60-pro-bl31-uboot-2026.08.19-11.23-cb29312.fip`
-- `netcore-n60-pro-initramfs-recovery-2026.08.19-11.23-cb29312.itb`
-- `netcore-n60-pro-squashfs-sysupgrade-2026.08.19-11.23-cb29312.itb`
-- `netcore-n60-pro-config-2026.08.19-11.23-cb29312.txt`
+- `netcore-n60-pro-nikki-squashfs-sysupgrade-2026.08.19-11.23-cb29312.itb`
+- `netcore-n60-pro-homeproxy-squashfs-sysupgrade-2026.08.19-11.23-cb29312.itb`
+- `netcore-n60-pro-dae-squashfs-sysupgrade-2026.08.19-11.23-cb29312.itb`
+- `netcore-n60-pro-nikki-config-2026.08.19-11.23-cb29312.txt`
+
+dae 版本会单独启用 eBPF、内核 BTF、cgroup BPF 和 XDP sockets。工作流在 `make defconfig` 后检查这些必需项；如果当前上游内核不再支持其中任一项，构建会立即失败，不会发布缺少 dae 核心能力的固件。
+
+构建缓存分为一份共享的 host/toolchain 缓存和 Nikki、HomeProxy、dae 三份独立的 `.ccache`。新上游提交会优先恢复对应变体最近一次缓存；首次构建某个变体时还可以回退复用其他变体的公共编译结果。
 
 ## 目录说明
 
