@@ -67,7 +67,9 @@ Release 标签采用 `N60-PRO-年.月.日-时.分-上游提交` 格式，例如�
 
 dae 版本会单独启用 eBPF、内核 BTF、cgroup BPF 和 XDP sockets。工作流在 `make defconfig` 后检查这些必需项；如果当前上游内核不再支持其中任一项，构建会立即失败，不会发布缺少 dae 核心能力的固件。
 
-构建缓存分为一份共享的 host/toolchain 缓存和 Nikki、HomeProxy、dae 三份独立的 `.ccache`。新上游提交会优先恢复对应变体最近一次缓存；首次构建某个变体时还可以回退复用其他变体的公共编译结果。
+构建缓存分为四部分：一份共享的 host/toolchain 缓存、Nikki/HomeProxy/dae 三份独立的 `.ccache`，以及一份共享的 `dl` 源码包缓存。新上游提交会优先恢复对应变体最近一次缓存；首次构建某个变体时还可以回退复用其他变体的公共编译结果。
+
+`Config/N60-PRO.txt` 里的 `CONFIG_DEVEL=y` 与 `CONFIG_CCACHE=y` 必须成对保留：`make clean` 每次都会清空 `build_dir`，只有 ccache 命中才能避免软件包被完整重编。工作流在 `make defconfig` 后会校验 `CONFIG_CCACHE=y`，丢失时会直接报错而不是静默变慢。
 
 ## 目录说明
 

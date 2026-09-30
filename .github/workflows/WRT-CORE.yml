@@ -122,6 +122,10 @@ jobs:
       WRT_UPSTREAM_SHA: ${{needs.prepare.outputs.sha}}
       WRT_VARIANT: ${{matrix.variant}}
       WRT_WIFI: wifi-yes
+      #ccache：目录由 OpenWrt 固定为 $(TOPDIR)/.ccache，这里只限制体积并开启压缩，
+      #避免多份缓存把仓库的 10 GB Actions cache 配额挤爆
+      CCACHE_MAXSIZE: 2G
+      CCACHE_COMPRESS: 'true'
     steps:
       - name: Checkout Projects
         uses: actions/checkout@main
@@ -136,7 +140,7 @@ jobs:
           sudo -E apt -yqq autoremove --purge
           sudo -E apt -yqq autoclean
           sudo -E apt -yqq clean
-          sudo -E apt -yqq install dos2unix libfuse-dev
+          sudo -E apt -yqq install dos2unix libfuse-dev ccache
           sudo bash -c 'bash <(curl -sL https://build-scripts.immortalwrt.org/init_build_environment.sh)'
           sudo -E systemctl daemon-reload
           sudo -E timedatectl set-timezone "Asia/Shanghai"
@@ -184,6 +188,16 @@ jobs:
             ${{env.WRT_CONFIG}}-${{env.WRT_INFO}}-ccache-
           path: ./wrt/.ccache
 
+      - name: Restore Source Download Cache
+        id: restore-download-cache
+        if: env.WRT_TEST != 'true'
+        uses: actions/cache/restore@v4
+        with:
+          key: ${{env.WRT_CONFIG}}-${{env.WRT_INFO}}-dl-${{env.WRT_HASH}}
+          restore-keys: |
+            ${{env.WRT_CONFIG}}-${{env.WRT_INFO}}-dl-
+          path: ./wrt/dl
+
       - name: Prepare Restored Caches
         if: env.WRT_TEST != 'true'
         run: |
@@ -223,6 +237,11 @@ jobs:
 
           make defconfig -j$(nproc)
 
+          if ! grep -qx 'CONFIG_CCACHE=y' .config; then
+            echo "CONFIG_CCACHE 未生效，编译缓存会失效，请检查 CONFIG_DEVEL=y 是否被 defconfig 丢弃。" >&2
+            exit 1
+          fi
+
           if [[ "$WRT_VARIANT" == "dae" ]]; then
             DAE_REQUIRED_OPTIONS=(
               CONFIG_PACKAGE_luci-app-daed
@@ -260,6 +279,14 @@ jobs:
           cd ./wrt/
 
           make download -j$(nproc)
+
+      - name: Save Source Download Cache
+        #三份变体共享同一份 dl，只由 dae 变体写入，避免并发抢占同一个 key
+        if: env.WRT_TEST != 'true' && matrix.variant == 'dae' && steps.restore-download-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          key: ${{env.WRT_CONFIG}}-${{env.WRT_INFO}}-dl-${{env.WRT_HASH}}
+          path: ./wrt/dl
 
       - name: Compile Firmware
         if: env.WRT_TEST != 'true'
@@ -353,9 +380,11 @@ jobs:
 
           TOOLCHAIN_KEY="$WRT_CONFIG-$WRT_INFO-toolchain-$WRT_HASH"
           COMPILER_KEY="$WRT_CONFIG-$WRT_INFO-ccache-$WRT_VARIANT-$WRT_HASH"
+          DOWNLOAD_KEY="$WRT_CONFIG-$WRT_INFO-dl-$WRT_HASH"
 
           if [[ "$WRT_VARIANT" == "dae" ]]; then
             delete_old_caches "$WRT_CONFIG-$WRT_INFO-toolchain-" "$TOOLCHAIN_KEY"
+            delete_old_caches "$WRT_CONFIG-$WRT_INFO-dl-" "$DOWNLOAD_KEY"
           fi
           delete_old_caches "$WRT_CONFIG-$WRT_INFO-ccache-$WRT_VARIANT-" "$COMPILER_KEY"
 
